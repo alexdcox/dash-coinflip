@@ -1,0 +1,14 @@
+logLevel: info
+minimumThreshold: 0.001
+maximumThreshold: 1
+databasePath: /app/data/database.sqlite
+http:
+  enabled: true
+  port: 3000
+dash:
+  network: testnet
+  hostport: coinflip_dash:19998
+  user: username
+  pass: password
+  zmqEndpoint: tcp://coinflip_dash:19997
+  debug: false

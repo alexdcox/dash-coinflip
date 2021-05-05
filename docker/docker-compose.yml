@@ -1,0 +1,27 @@
+services:
+  server:
+    build: .
+    image: dash/coinflip
+    ports:
+      - "3000:3000"
+    volumes:
+      - coinflip-server:/app/data
+      - ${PWD}/server-config.yml:/app/config.yml
+    container_name: coinflip_server
+    depends_on:
+      - dash
+    links:
+        - "dash:dash"
+  dash:
+    image: ewalletdev/dashd:0.17.0.0
+    hostname: dash
+    ports:
+      - "19997-19999:19997-19999"
+    container_name: coinflip_dash
+    entrypoint: dashd
+    volumes:
+      - coinflip-dash:/dash
+      - ${PWD}/dash.conf:/root/.dashcore/dash.conf
+volumes:
+  coinflip-server:
+  coinflip-dash:

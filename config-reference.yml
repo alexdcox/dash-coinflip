@@ -1,0 +1,14 @@
+logLevel: info
+minimumThreshold: 0.001
+maximumThreshold: 1
+databasePath: ./database.sqlite
+http:
+  enabled: true
+  port: 3000
+dash:
+  network: testnet
+  hostport: localhost:19998
+  user: username
+  pass: password
+  zmqEndpoint: tcp://127.0.0.1:19997
+  debug: false
