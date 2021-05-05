@@ -235,7 +235,7 @@ func (c *CoinFlip) Run() (err error) {
 		defer func() {
 			err := c.database.StoreResult(result)
 			if err != nil {
-				logrus.WithError(err).Errorf("Failed to persist refund to database for tx %s", tx.Hash)
+				logrus.WithError(err).Errorf("Failed to persist result to database for tx %s", tx.Hash)
 			}
 		}()
 

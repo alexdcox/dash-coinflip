@@ -1,11 +1,3 @@
-#FROM ewalletdev/gozmq
-#WORKDIR /app
-#COPY app .
-#ARG version=unspecified
-#LABEL version=$version
-#ENV VERSION $version
-#ENTRYPOINT ["./app"]
-
 FROM golang:latest
 WORKDIR /go/src/github.com/alexdcox/dash-coinflip
 COPY . .

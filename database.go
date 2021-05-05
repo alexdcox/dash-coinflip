@@ -9,7 +9,7 @@ import (
 )
 
 func NewDatabase(path string) (database *Database, err error) {
-	logrus.Infof("Loading sqllite database from '%s'", path)
+	logrus.Infof("Loading sqlite database from '%s'", path)
 
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
