@@ -8,7 +8,7 @@ http:
 dash:
   network: testnet
   hostport: coinflip_dash:19998
-  user: username
-  pass: password
-  zmqEndpoint: tcp://coinflip_dash:19997
+  user: user
+  pass: pass
+  zmqEndpoint: tcp://coinflip_dash:28332
   debug: false

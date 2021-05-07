@@ -47,17 +47,18 @@ type Router struct {
 
 func (r *Router) Status(c echo.Context) error {
 	res := Map{
-		"uptime":         time.Now().Sub(r.coinFlip.started).String(),
-		"balance":        fmt.Sprintf("%.8f", r.coinFlip.state.Balance),
-		"topupAddress":   r.coinFlip.state.TopupAddress,
-		"headsAddress":   r.coinFlip.state.HeadsAddress,
-		"tailsAddress":   r.coinFlip.state.TailsAddress,
-		"won":            r.coinFlip.state.WonCount,
-		"lost":           r.coinFlip.state.LostCount,
-		"refunded":       r.coinFlip.state.RefundCount,
-		"dashBuild":      r.coinFlip.dash.buildVersion,
-		"dashBlockCount": r.coinFlip.dash.blockCount,
-		"dashProtocol":   r.coinFlip.dash.protocolVersion,
+		"uptime":                   time.Now().Sub(r.coinFlip.started).String(),
+		"balance":                  fmt.Sprintf("%.8f", r.coinFlip.state.Balance),
+		"topupAddress":             r.coinFlip.state.TopupAddress,
+		"headsAddress":             r.coinFlip.state.HeadsAddress,
+		"tailsAddress":             r.coinFlip.state.TailsAddress,
+		"won":                      r.coinFlip.state.WonCount,
+		"lost":                     r.coinFlip.state.LostCount,
+		"refunded":                 r.coinFlip.state.RefundCount,
+		"dashBuild":                r.coinFlip.dash.buildVersion,
+		"dashBlockCount":           r.coinFlip.dash.blockCount,
+		"dashProtocol":             r.coinFlip.dash.protocolVersion,
+		"dashVerificationProgress": r.coinFlip.dash.verificationProgress,
 	}
 
 	version := os.Getenv("VERSION")

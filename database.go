@@ -30,7 +30,7 @@ func (d *Database) Setup() (err error) {
 	rows, err := d.client.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name='state'`)
 	if err != nil {
 		err = errors.WithStack(err)
-	    return
+		return
 	}
 	defer rows.Close()
 	if rows.Next() {
@@ -72,6 +72,19 @@ func (d *Database) Setup() (err error) {
 			payout_amount REAL,
 			payout_hash TEXT,
 			payout_error TEXT
+		)
+	`)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	_, err = d.client.Exec(`
+		CREATE TABLE topup (
+		    id INTEGER PRIMARY KEY AUTOINCREMENT,
+		    received TEXT,
+		    hash TEXT,
+		    "from" TEXT,
+		    amount REAL
 		)
 	`)
 	if err != nil {
@@ -129,7 +142,7 @@ func (d *Database) GetState() (state *CoinFlipState, err error) {
 		FROM 'state' WHERE id=1`)
 	if err != nil {
 		err = errors.WithStack(err)
-	    return
+		return
 	}
 	defer rows.Close()
 	state = new(CoinFlipState)
@@ -241,6 +254,68 @@ func (d *Database) GetResult(hash string) (result *FlipResult, err error) {
 		result.Received, _ = time.Parse(time.RFC3339, received)
 	} else {
 		err = errors.Errorf("no result found for hash %s", hash)
+	}
+	return
+}
+
+func (d *Database) StoreTopup(topup *Topup) (err error) {
+	stmt, err := d.client.Prepare(`
+    INSERT INTO topup(
+      received,
+      hash,
+      "from",
+      amount
+    )
+    VALUES(?,?,?,?)
+  `)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	_, err = stmt.Exec(
+		topup.Received.Format(time.RFC3339),
+		topup.Hash,
+		topup.From,
+		topup.Amount,
+	)
+	return errors.WithStack(err)
+}
+
+func (d *Database) GetTopup(hash string) (topup *Topup, err error) {
+	stmt, err := d.client.Prepare(`
+    SELECT 
+      received,
+      hash,
+      "from",
+      amount
+    FROM 'topup'
+    WHERE hash=?
+  `)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	rows, err := stmt.Query(hash)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	defer rows.Close()
+	topup = new(Topup)
+	if rows.Next() {
+		var received string
+		err = errors.WithStack(rows.Scan(
+			&received,
+			&topup.Hash,
+			&topup.From,
+			&topup.Amount,
+		))
+		if err != nil {
+			return
+		}
+		topup.Received, _ = time.Parse(time.RFC3339, received)
+	} else {
+		err = errors.Errorf("no topup found for hash %s", hash)
 	}
 	return
 }

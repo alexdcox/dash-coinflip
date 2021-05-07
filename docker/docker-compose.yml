@@ -1,6 +1,5 @@
 services:
   server:
-    build: .
     image: dash/coinflip
     ports:
       - "3000:3000"
@@ -13,15 +12,16 @@ services:
     links:
         - "dash:dash"
   dash:
-    image: ewalletdev/dashd:0.17.0.0
+    image: dashpay/dashd:0.17.0.0-rc4-hotfix2
     hostname: dash
     ports:
-      - "19997-19999:19997-19999"
+      - "19998-19999:19998-19999"
+      - "28332:28332"
     container_name: coinflip_dash
     entrypoint: dashd
     volumes:
       - coinflip-dash:/dash
-      - ${PWD}/dash.conf:/root/.dashcore/dash.conf
+      - ${PWD}/dash.conf:/dash/.dashcore/dash.conf
 volumes:
-  coinflip-server:
-  coinflip-dash:
+  coinflip-server: {}
+  coinflip-dash: {}

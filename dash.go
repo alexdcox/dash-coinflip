@@ -39,9 +39,9 @@ func init() {
 }
 
 const (
-	MessageTypeRawTxLockSig = "rawtxlocksig"
-	MessageTypeRawTx        = "rawtx"
 	MessageTypeRawBlock     = "rawblock"
+	MessageTypeRawTx        = "rawtx"
+	MessageTypeRawTxLockSig = "rawtxlocksig"
 )
 
 type Transaction struct {
@@ -84,16 +84,17 @@ func NewDashNode(config ConfigDashNode) (dashNode *DashNode, err error) {
 }
 
 type DashNode struct {
-	OnTransaction    func(tx *Transaction)
-	watchedAddresses []string
-	config           ConfigDashNode
-	httpclient       *http.Client
-	timeout          time.Duration
-	zmqContext       *zmq.Context
-	params           *chaincfg.Params
-	buildVersion     string
-	protocolVersion  string
-	blockCount       int64
+	OnTransaction        func(tx *Transaction)
+	watchedAddresses     []string
+	config               ConfigDashNode
+	httpclient           *http.Client
+	timeout              time.Duration
+	zmqContext           *zmq.Context
+	params               *chaincfg.Params
+	buildVersion         string
+	protocolVersion      string
+	blockCount           int64
+	verificationProgress float64
 }
 
 func (d *DashNode) zmqSubscribe(messageType string) (subscriber *zmq.Socket, err error) {
@@ -123,30 +124,25 @@ func (d *DashNode) Connect() (err error) {
 	d.buildVersion = networkInfo.Get("buildversion").String()
 	d.protocolVersion = networkInfo.Get("protocolversion").String()
 
-	blockCount, err := d.GetBlockCount()
-	if err != nil {
-		return
-	}
-
-	d.blockCount = blockCount
-
 	go func() {
-		subscriber, err := d.zmqSubscribe(MessageTypeRawBlock)
-		if err != nil {
-			return
-		}
+		var blockCountCheckDelay time.Duration
 
 		for {
-			var message [][]byte
-			message, err = subscriber.RecvMessageBytes(0)
+			blockchainInfo, err := d.GetBlockchainInfo()
 			if err != nil {
 				return
 			}
-			if len(message) != 3 || string(message[0]) != MessageTypeRawBlock {
-				continue
+
+			d.blockCount = blockchainInfo.Get("blocks").Int()
+			d.verificationProgress = blockchainInfo.Get("verificationprogress").Float()
+
+			if d.verificationProgress > 0.999 {
+				blockCountCheckDelay = time.Second * 10
+			} else {
+				blockCountCheckDelay = time.Second * 3
 			}
 
-			d.blockCount += 1
+			time.Sleep(blockCountCheckDelay)
 		}
 	}()
 
@@ -343,6 +339,15 @@ func (d *DashNode) GetNetworkInfo() (jsn gjson.Result, err error) {
 	return
 }
 
+func (d *DashNode) GetBlockchainInfo() (jsn gjson.Result, err error) {
+	jsn, _, err = d.req(Map{"method": "getblockchaininfo"})
+	if err != nil {
+		return
+	}
+	jsn = jsn.Get("result")
+	return
+}
+
 func (d *DashNode) GetBlockCount() (count int64, err error) {
 	jsn, _, err := d.req(Map{"method": "getblockcount"})
 	if err != nil {
@@ -354,7 +359,7 @@ func (d *DashNode) GetBlockCount() (count int64, err error) {
 
 func (d *DashNode) IsLoading() (loading bool, err error) {
 	jsn, _, err := d.req(Map{"method": "getblockcount"})
-	if jsn.Get("error.code").String() == "-28" {
+	if jsn.Get("error.code").Exists() {
 		loading = true
 		err = nil
 	}
@@ -413,16 +418,16 @@ func (d *DashNode) req(m Map) (jsn gjson.Result, rsp *http.Response, err error) 
 		return
 	}
 
+	jsn = gjson.ParseBytes(body)
+
 	if d.config.Debug {
 		fmt.Println("<-- ", string(body))
 	}
 
-	if rsp.StatusCode != 200 || jsn.Get("error").Bool() || jsn.Get("result.errors.0.error").Exists() {
+	if rsp.StatusCode != 200 || jsn.Get("error.code").Exists() {
 		err = errors.Errorf("node communication error: %s %s", rsp.Status, string(body))
 		return
 	}
-
-	jsn = gjson.ParseBytes(body)
 
 	return
 }

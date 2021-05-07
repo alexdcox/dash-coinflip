@@ -72,6 +72,13 @@ type CoinFlipState struct {
 	RefundCount  int64
 }
 
+type Topup struct {
+	Hash     string
+	From     string
+	Amount   float64
+	Received time.Time
+}
+
 type FlipResult struct {
 	TransactionHash      string
 	TransactionFrom      string
@@ -149,16 +156,15 @@ func (c *CoinFlip) Shutdown() (err error) {
 
 func (c *CoinFlip) Run() (err error) {
 	for {
-		if loading, loadingErr := c.dash.IsLoading(); loading {
-			if loadingErr != nil {
-				err = loadingErr
-				return
-			}
-			if !loading {
-				break
-			}
+		loading, loadingErr := c.dash.IsLoading()
+		if loadingErr != nil {
+			err = loadingErr
+			return
 		}
-		logrus.Info("Waiting for node to download blockchain data... 💤")
+		if !loading {
+			break
+		}
+		logrus.Info("Waiting for node rpc server to start... 💤")
 		time.Sleep(time.Second * 10)
 	}
 
@@ -212,8 +218,27 @@ func (c *CoinFlip) Run() (err error) {
 		}
 
 		if topupAmount, usesTopupAddress := tx.Amounts[c.state.TopupAddress]; usesTopupAddress {
+			if _, err = c.database.GetTopup(tx.Hash); err == nil {
+				logrus.Debugf("Skipping already-handled topup event: %s", tx.Hash)
+				return
+			}
+			topup := &Topup{
+				Hash:     tx.Hash,
+				From:     tx.RefundAddress,
+				Amount:   topupAmount,
+				Received: time.Now(),
+			}
+			err := c.database.StoreTopup(topup)
+			if err != nil {
+				logrus.WithError(err).Panicf(
+					"Unable to persist topup of %.8f received with tx %s, cannot de-duplicate transactions",
+					topupAmount,
+					tx.Hash,
+				)
+			}
 			c.state.Balance += topupAmount
-			logrus.Infof("System topup received, balance is %.8f", c.state.Balance)
+			logrus.Infof("Topup of %.8f received with tx %s", topupAmount, tx.Hash)
+			logBalance()
 			return
 		}
 
