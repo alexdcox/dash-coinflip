@@ -52,6 +52,8 @@ func (r *Router) Status(c echo.Context) error {
 		"topupAddress":             r.coinFlip.state.TopupAddress,
 		"headsAddress":             r.coinFlip.state.HeadsAddress,
 		"tailsAddress":             r.coinFlip.state.TailsAddress,
+		"minimumThreshold":         fmt.Sprintf("%.8f", r.coinFlip.minimumThreshold),
+		"maximumThreshold":         fmt.Sprintf("%.8f", r.coinFlip.maximumThreshold),
 		"won":                      r.coinFlip.state.WonCount,
 		"lost":                     r.coinFlip.state.LostCount,
 		"refunded":                 r.coinFlip.state.RefundCount,
