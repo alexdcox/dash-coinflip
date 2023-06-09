@@ -15,7 +15,8 @@ services:
     image: dashpay/dashd:0.17.0.0-rc4-hotfix2
     hostname: dash
     ports:
-      - "19998-19999:19998-19999"
+      - "19999:19999"
+      - "127.0.0.1:19998:19998"
       - "28332:28332"
     container_name: coinflip_dash
     entrypoint: dashd
