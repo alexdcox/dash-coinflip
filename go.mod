@@ -12,5 +12,5 @@ require (
 	github.com/pebbe/zmq4 v1.2.7
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
-	github.com/tidwall/gjson v1.7.5
+	github.com/tidwall/gjson v1.9.3
 )
