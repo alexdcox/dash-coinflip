@@ -1,14 +1,16 @@
 package main
 
 import (
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -168,6 +170,54 @@ func (c *CoinFlip) Run() (err error) {
 		time.Sleep(time.Second * 10)
 	}
 
+	if c.config.Dash.Wallet == "" {
+		logrus.Info("Using wallet '' (i.e. the default)")
+	} else {
+		logrus.Infof("Using wallet '%s'", c.config.Dash.Wallet)
+	}
+
+	balanceCheck := func() error {
+		walletBalance, err2 := c.dash.GetBalance()
+		logrus.Infof("Verifying server balance - expected %.8f == actual %.8f", c.state.Balance, walletBalance)
+		if err2 != nil {
+			return err2
+		}
+		if fmt.Sprintf("%.8f", walletBalance) != fmt.Sprintf("%.8f", c.state.Balance) {
+			return fmt.Errorf(
+				"balance mismatch between wallet and state. expected %.8f, got %.8f from wallet '%v'",
+				c.state.Balance,
+				walletBalance,
+				c.config.Dash.Wallet,
+			)
+		}
+		return nil
+	}
+
+	nodeBalance, walletBalanceErr := c.dash.GetBalance()
+	if walletBalanceErr != nil {
+		if strings.Contains(walletBalanceErr.Error(), "Requested wallet does not exist or is not loaded") {
+			logrus.Infof("Wallet not found, creating '%s'", c.config.Dash.Wallet)
+			_, err = c.dash.CreateWallet()
+			if err != nil {
+				return err
+			}
+			c.state.TopupAddress = ""
+			c.state.HeadsAddress = ""
+			c.state.TailsAddress = ""
+		}
+		c.state.Balance = 0
+	} else {
+		if c.config.ReadInitialBalanceFromNode {
+			logrus.Infof("Overwriting initial expected balance from current node balance: %.8f", nodeBalance)
+			c.state.Balance = nodeBalance
+		} else {
+			err = balanceCheck()
+			if err != nil {
+				return
+			}
+		}
+	}
+
 	if c.state.TopupAddress == "" {
 		logrus.Info("Generating new topup address")
 		c.state.TopupAddress, err = c.dash.NewAddress()
@@ -212,6 +262,8 @@ func (c *CoinFlip) Run() (err error) {
 		transactionMutex.Lock()
 		defer transactionMutex.Unlock()
 
+		logrus.Debugf("Handling %s transaction (i.s: %t) - %s", tx.Type, tx.InstantSend, tx.Hash)
+
 		if _, err = c.database.GetResult(tx.Hash); err == nil {
 			logrus.Debugf("Skipping already-handled transaction event: %s", tx.Hash)
 			return
@@ -222,6 +274,7 @@ func (c *CoinFlip) Run() (err error) {
 				logrus.Debugf("Skipping already-handled topup event: %s", tx.Hash)
 				return
 			}
+			c.state.Balance += topupAmount
 			topup := &Topup{
 				Hash:     tx.Hash,
 				From:     tx.RefundAddress,
@@ -236,7 +289,6 @@ func (c *CoinFlip) Run() (err error) {
 					tx.Hash,
 				)
 			}
-			c.state.Balance += topupAmount
 			logrus.Infof("Topup of %.8f received with tx %s", topupAmount, tx.Hash)
 			logBalance()
 			return
@@ -295,6 +347,8 @@ func (c *CoinFlip) Run() (err error) {
 			isEvenSelection = false
 		}
 
+		c.state.Balance += amount
+
 		payoutAmount := amount * (1.99)
 
 		refund := func() {
@@ -307,6 +361,7 @@ func (c *CoinFlip) Run() (err error) {
 				result.RefundHash = txid
 			}
 			c.state.RefundCount += 1
+			c.state.Balance -= amount
 		}
 
 		switch {
@@ -329,7 +384,6 @@ func (c *CoinFlip) Run() (err error) {
 		case isEvenSelection != tx.HasEvenBlsSignature():
 			logrus.Infof("No luck this time 🐠 tx %s of %f", tx.Hash, amount)
 			c.state.LostCount += 1
-			c.state.Balance += amount
 			logBalance()
 
 		default:
@@ -347,6 +401,13 @@ func (c *CoinFlip) Run() (err error) {
 			c.state.WonCount += 1
 			logBalance()
 		}
+
+		// Do a balance check here but don't worry about the actual result.
+		// Just provide helpful logs.
+		// It's possible for the balance to be greater than expected if the node
+		// receives many transactions in quick succession before we've
+		// processed the zmq message.
+		_ = balanceCheck()
 	}
 
 	err = c.dash.Connect()

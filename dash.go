@@ -4,20 +4,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/labstack/echo"
-	zmq "github.com/pebbe/zmq4"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dashpay/dashd-go/chaincfg"
+	"github.com/dashpay/dashd-go/txscript"
+	"github.com/dashpay/dashd-go/wire"
+	"github.com/labstack/echo"
+	zmq "github.com/pebbe/zmq4"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
 
 var (
@@ -38,13 +39,16 @@ func init() {
 
 }
 
+// currently unused messages:
+// MessageTypeRawBlock     = "rawblock"
+// MessageTypeRawTx        = "rawtx"
+
 const (
-	MessageTypeRawBlock     = "rawblock"
-	MessageTypeRawTx        = "rawtx"
 	MessageTypeRawTxLockSig = "rawtxlocksig"
 )
 
 type Transaction struct {
+	Type          string
 	Hash          string
 	InstantSend   bool
 	BlsSignature  string
@@ -170,7 +174,7 @@ func (d *DashNode) Connect() (err error) {
 		Data     []byte
 		Received time.Time
 	}
-	type WireTransactionCallback func(wireTx *WireTransaction)
+	type ZmqMessageCallback func(wireTx *WireTransaction)
 
 	handleWireTransaction := func(wireTx *WireTransaction) {
 		reader := bytes.NewBuffer(wireTx.Data)
@@ -196,6 +200,8 @@ func (d *DashNode) Connect() (err error) {
 		if err != nil {
 			return
 		}
+
+		logrus.Debugf("%s - %s\n", wireTx.Type, tx.TxHash().String())
 
 		if len(jsn.Get("vin").Array()) < 1 || len(jsn.Get("vout").Array()) < 1 {
 			logrus.Debugf("Ignoring non-standard transaction with hash: %s", hash)
@@ -224,24 +230,26 @@ func (d *DashNode) Connect() (err error) {
 		})
 
 		transaction := &Transaction{
+			Type:          wireTx.Type,
 			Hash:          hash,
 			Amounts:       amounts,
 			RefundAddress: refundAddress,
 		}
 
 		if wireTx.Type == MessageTypeRawTxLockSig {
-			messageLen := len(wireTx.Data)
-			blsSignatureLen := 96
-			blsSignature := wireTx.Data[messageLen-blsSignatureLen : messageLen]
-
-			transaction.InstantSend = true
-			transaction.BlsSignature = fmt.Sprintf("%x", blsSignature)
+			if jsn.Get("instantlock").Bool() {
+				messageLen := len(wireTx.Data)
+				blsSignatureLen := 96
+				blsSignature := wireTx.Data[messageLen-blsSignatureLen : messageLen]
+				transaction.InstantSend = true
+				transaction.BlsSignature = fmt.Sprintf("%x", blsSignature)
+			}
 		}
 
 		d.OnTransaction(transaction)
 	}
 
-	delayCallback := func(callback WireTransactionCallback, delay time.Duration) WireTransactionCallback {
+	delayCallback := func(callback ZmqMessageCallback, delay time.Duration) ZmqMessageCallback {
 		var delayedBuffer []*WireTransaction
 		delayedBufferMutex := new(sync.Mutex)
 		go func() {
@@ -271,8 +279,9 @@ func (d *DashNode) Connect() (err error) {
 		}
 	}
 
-	subscribeToMessages := func(messageType string, callback WireTransactionCallback) {
+	subscribeToMessages := func(messageType string, callback ZmqMessageCallback) {
 		go func() {
+			logrus.Debug("@zmq subscribe", messageType)
 			subscriber, err := d.zmqSubscribe(messageType)
 			if err != nil {
 				return
@@ -284,7 +293,9 @@ func (d *DashNode) Connect() (err error) {
 				if err != nil {
 					return
 				}
+				logrus.Debug("@zmq message", messageType)
 				if len(message) != 3 || string(message[0]) != messageType {
+					logrus.Debug("dropped zmq message")
 					continue
 				}
 
@@ -298,14 +309,43 @@ func (d *DashNode) Connect() (err error) {
 		}()
 	}
 
-	subscribeToMessages(MessageTypeRawTxLockSig, handleWireTransaction)
-	subscribeToMessages(MessageTypeRawTx, delayCallback(handleWireTransaction, time.Second * 10))
+	// NOTE: The delay is there to give the transaction more time to appear as
+	//       an instant send transaction to the node, and be reflected in the
+	//       rpc response.
+	subscribeToMessages(MessageTypeRawTxLockSig, delayCallback(handleWireTransaction, time.Second*2))
 
 	return
 }
 
+func (d *DashNode) CreateWallet() (address string, err error) {
+	jsn, _, err := d.req(Map{
+		"method": "createwallet",
+		"params": MapArray{d.config.Wallet},
+	})
+	if err != nil {
+		return
+	}
+	address = jsn.Get("result").String()
+	return
+}
+
+func (d *DashNode) GetBalance() (balance float64, err error) {
+	jsn, _, err := d.req(Map{
+		"method": "getbalance",
+		"wallet": d.config.Wallet,
+	})
+	if err != nil {
+		return
+	}
+	balance = jsn.Get("result").Float()
+	return
+}
+
 func (d *DashNode) NewAddress() (address string, err error) {
-	jsn, _, err := d.req(Map{"method": "getnewaddress"})
+	jsn, _, err := d.req(Map{
+		"method": "getnewaddress",
+		"wallet": d.config.Wallet,
+	})
 	if err != nil {
 		return
 	}
@@ -359,31 +399,139 @@ func (d *DashNode) GetBlockCount() (count int64, err error) {
 
 func (d *DashNode) IsLoading() (loading bool, err error) {
 	jsn, _, err := d.req(Map{"method": "getblockcount"})
+	if err != nil {
+		if strings.Contains(err.Error(), "connection refused") {
+			loading = true
+			err = nil
+			return
+		}
+	}
 	if jsn.Get("error.code").Exists() {
 		loading = true
 		err = nil
 	}
-	if err != nil {
-		return
-	}
 	return
 }
 
-func (d *DashNode) Send(address string, amount float64) (txid string, err error) {
-	jsn, _, err := d.req(Map{
-		"method": "sendtoaddress",
-		"params": MapArray{
-			address,
-			fmt.Sprintf("%.8f", amount),
-			"",
-			"",
-			true,
-		},
+func (d *DashNode) ListUnspent() (jsn gjson.Result, err error) {
+	jsn, _, err = d.req(Map{
+		"method": "listunspent",
+		"wallet": d.config.Wallet,
+		"params": MapArray{0},
 	})
 	if err != nil {
 		return
 	}
-	txid = jsn.Get("result").String()
+	jsn = jsn.Get("result")
+	return
+}
+
+func (d *DashNode) Send(address string, amount float64) (txid string, err error) {
+	networkInfo, err := d.GetNetworkInfo()
+	if err != nil {
+		return
+	}
+
+	relayFee := networkInfo.Get("relayfee").Float()
+
+	listUnspent, err := d.ListUnspent()
+	if err != nil {
+		return
+	}
+	runningTotal := 0.0
+	var unspentIn []Map
+	listUnspent.ForEach(func(key, value gjson.Result) bool {
+		id := value.Get("txid").String()
+		if !value.Get("spendable").Bool() {
+			logrus.Debugf("skipping unspent txid %s, not spendable\n", id)
+			return true
+		}
+		if !value.Get("safe").Bool() {
+			logrus.Debugf("skipping unsafe txid %s, not safe to spend\n", id)
+			return true
+		}
+		uamount := value.Get("amount").Float()
+		vout := value.Get("vout").Int()
+		unspentIn = append(unspentIn, Map{
+			"txid": id,
+			"vout": vout,
+		})
+		runningTotal += uamount
+		if runningTotal >= amount+relayFee {
+			return false
+		}
+		return true
+	})
+
+	if len(unspentIn) < 1 {
+		err = errors.New("no unspent transactions available, exiting")
+		return
+	}
+
+	changeOut := runningTotal - amount
+	changeAddress, err := d.NewAddress()
+	if err != nil {
+		return
+	}
+
+	outs := []Map{
+		{address: fmt.Sprintf("%.8f", amount-relayFee)},
+		{changeAddress: fmt.Sprintf("%.8f", changeOut)},
+	}
+
+	createRawParams := MapArray{
+		unspentIn,
+		outs,
+	}
+
+	rawTransaction, _, err := d.req(Map{
+		"method": "createrawtransaction",
+		"wallet": d.config.Wallet,
+		"params": createRawParams,
+	})
+	if err != nil {
+		if j, err := json.Marshal(createRawParams); err == nil {
+			logrus.Errorf("Create raw transaction failed with params: %s", j)
+		}
+		return
+	}
+	rawTransaction = rawTransaction.Get("result")
+
+	signedRawTransaction, _, err := d.req(Map{
+		"method": "signrawtransactionwithwallet",
+		"wallet": d.config.Wallet,
+		"params": MapArray{rawTransaction.String()},
+	})
+	if err != nil {
+		err = errors.Errorf("failed to sign raw transaction: %s, err: %+v", rawTransaction, err)
+		return
+	}
+	signedRawTransaction = signedRawTransaction.Get("result")
+	signedRawTransactionHex := signedRawTransaction.Get("hex").String()
+
+	if !signedRawTransaction.Get("complete").Bool() {
+		err = errors.Errorf("failed to sign raw transaction: %s", signedRawTransactionHex)
+		return
+	}
+
+	sendResult, _, err := d.req(Map{
+		"method": "sendrawtransaction",
+		"wallet": d.config.Wallet,
+		"params": MapArray{signedRawTransactionHex, 0},
+	})
+	if err != nil {
+		err = errors.Errorf("failed to send signed raw transaction: %s, err: %+v", signedRawTransactionHex, err)
+		return
+	}
+	sendResult = sendResult.Get("result")
+
+	txid = sendResult.String()
+	if txid == "" {
+		logrus.Debug("DASH ERROR", sendResult.Raw)
+		err = errors.New("failed to determne txid")
+		return
+	}
+
 	return
 }
 
@@ -398,7 +546,14 @@ func (d *DashNode) req(m Map) (jsn gjson.Result, rsp *http.Response, err error) 
 		fmt.Println("--> ", string(jsonin))
 	}
 
-	req, err := http.NewRequest("POST", "http://"+d.config.Hostport, bytes.NewBuffer(jsonin))
+	// This is a bit of a workaround for dash v19.2 to allow wallet selection in the url
+	urlAppend := ""
+	if wallet, hasWallet := m["wallet"]; hasWallet {
+		urlAppend = fmt.Sprintf("/wallet/%s", wallet)
+		delete(m, "wallet")
+	}
+
+	req, err := http.NewRequest("POST", "http://"+d.config.Hostport+urlAppend, bytes.NewBuffer(jsonin))
 	if err != nil {
 		err = errors.WithStack(err)
 		return

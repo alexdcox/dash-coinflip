@@ -2,7 +2,7 @@ services:
   server:
     image: dash/coinflip
     ports:
-      - "3000:3000"
+      - "3330:3330"
     volumes:
       - coinflip-server:/app/data
       - ${PWD}/server-config.yml:/app/config.yml
@@ -12,17 +12,17 @@ services:
     links:
         - "dash:dash"
   dash:
-    image: dashpay/dashd:0.17.0.0-rc4-hotfix2
+    image: dashpay/dashd:latest
     hostname: dash
     ports:
       - "19999:19999"
       - "127.0.0.1:19998:19998"
-      - "28332:28332"
+      - "28333:28333"
     container_name: coinflip_dash
     entrypoint: dashd
     volumes:
-      - coinflip-dash:/dash
-      - ${PWD}/dash.conf:/dash/.dashcore/dash.conf
+      - coinflip-dash:/home/dash/.dashcore
+      - ${PWD}/dash.conf:/home/dash/.dashcore/dash.conf
 volumes:
   coinflip-server: {}
   coinflip-dash: {}

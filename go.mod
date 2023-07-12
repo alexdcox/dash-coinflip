@@ -3,7 +3,7 @@ module github.com/alexdcox/dash-coinflip
 go 1.15
 
 require (
-	github.com/btcsuite/btcd v0.21.0-beta
+	github.com/dashpay/dashd-go v0.24.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/ghodss/yaml v1.0.0
 	github.com/labstack/echo v3.3.10+incompatible

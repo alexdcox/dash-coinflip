@@ -2,10 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"time"
+
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 func NewDatabase(path string) (database *Database, err error) {
@@ -34,7 +35,7 @@ func (d *Database) Setup() (err error) {
 	}
 	defer rows.Close()
 	if rows.Next() {
-		logrus.Info("Found existing database, skipping setup")
+		logrus.Info("Found existing database, skipping sql setup")
 		return
 	}
 

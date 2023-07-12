@@ -2,13 +2,15 @@ logLevel: info
 minimumThreshold: 0.001
 maximumThreshold: 1
 databasePath: /app/data/database.sqlite
+readInitialBalanceFromNode: true
 http:
   enabled: true
-  port: 3000
+  port: 3330
 dash:
   network: testnet
   hostport: coinflip_dash:19998
   user: user
   pass: pass
-  zmqEndpoint: tcp://coinflip_dash:28332
+  zmqEndpoint: tcp://coinflip_dash:28333
   debug: false
+  wallet: coinflip

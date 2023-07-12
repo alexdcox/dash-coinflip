@@ -1,20 +1,22 @@
 package main
 
 import (
+	"io/ioutil"
+	"os"
+
 	"github.com/ghodss/yaml"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"io/ioutil"
-	"os"
 )
 
 type Config struct {
-	LogLevel         string
-	MinimumThreshold float64
-	MaximumThreshold float64
-	DatabasePath     string
-	Dash             ConfigDashNode
-	Http             ConfigHttp
+	LogLevel                   string
+	MinimumThreshold           float64
+	MaximumThreshold           float64
+	DatabasePath               string
+	ReadInitialBalanceFromNode bool
+	Dash                       ConfigDashNode
+	Http                       ConfigHttp
 }
 
 type ConfigHttp struct {
@@ -29,6 +31,7 @@ type ConfigDashNode struct {
 	Pass        string
 	ZmqEndpoint string
 	Debug       bool
+	Wallet      string
 }
 
 func (c *Config) Load() error {
